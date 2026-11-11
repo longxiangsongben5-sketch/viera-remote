@@ -1,0 +1,59 @@
+name: Build IPA
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Build (unsigned)
+        run: |
+          set -e
+          xcodebuild \
+            -project VieraRemote.xcodeproj \
+            -scheme VieraRemote \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath "$PWD/build/DD" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_IDENTITY="" \
+            build
+
+      - name: Package IPA
+        run: |
+          set -e
+          APP_PATH=$(find "$PWD/build/DD/Build/Products/Release-iphoneos" -maxdepth 1 -name "*.app" | head -1)
+          echo "App: $APP_PATH"
+          rm -rf Payload VieraRemote-unsigned.ipa
+          mkdir Payload
+          cp -R "$APP_PATH" Payload/
+          zip -qry VieraRemote-unsigned.ipa Payload
+          ls -lh VieraRemote-unsigned.ipa
+          unzip -l VieraRemote-unsigned.ipa | head -30
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VieraRemote-unsigned
+          path: VieraRemote-unsigned.ipa
+
+      - name: Publish release with IPA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v0.1.${{ github.run_number }}"
+          gh release create "$TAG" VieraRemote-unsigned.ipa \
+            --title "VieraRemote prototype $TAG" \
+            --notes "Unsigned prototype IPA for Panasonic VIERA TH-43EX600 remote-control testing. Sign with ESign/AltStore before installing."
